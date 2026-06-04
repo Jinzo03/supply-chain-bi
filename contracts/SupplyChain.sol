@@ -1,39 +1,47 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.28;
 
 contract SupplyChain {
-    // 1. Define what an Asset looks like
+    enum CustodyStage { Supplier, Carrier, Warehouse, Retailer }
+
     struct Asset {
         uint256 id;
         string name;
-        uint256 valueUSD; // Crucial for our Financial Analysis
+        uint256 valueUSD;
         bool isSpoiled;
+        CustodyStage currentCustody;
     }
 
-    // 2. Store assets in a mapping (like a dictionary)
     mapping(uint256 => Asset) public assets;
 
-    // 3. Define an Event. 
-    // This is the MOST important part for BI. Events are logged on the blockchain 
-    // and our Next.js frontend will listen for them to build the Chart.js graphs.
+    event AssetRegistered(uint256 indexed assetId, string name, uint256 valueUSD);
+    event CustodyTransferred(uint256 indexed assetId, CustodyStage newCustody);
     event TelemetryLogged(uint256 indexed assetId, int256 temperature, uint256 timestamp);
-    event AssetSpoiled(uint256 indexed assetId, uint256 lossValueUSD);
+    // Financial liability is explicitly assigned to the party holding custody during the breach
+    event AssetSpoiled(uint256 indexed assetId, uint256 financialLossUSD, CustodyStage liableParty);
 
-    // 4. Function to create a new shipment
     function registerAsset(uint256 _id, string memory _name, uint256 _valueUSD) public {
-        assets[_id] = Asset(_id, _name, _valueUSD, false);
+        assets[_id] = Asset(_id, _name, _valueUSD, false, CustodyStage.Supplier);
+        emit AssetRegistered(_id, _name, _valueUSD);
     }
 
-    // 5. Function for IoT sensors to log temperature
+    function transferCustody(uint256 _id, CustodyStage _newCustody) public {
+        Asset storage asset = assets[_id];
+        require(!asset.isSpoiled, "Cannot transfer a spoiled asset");
+        asset.currentCustody = _newCustody;
+        emit CustodyTransferred(_id, _newCustody);
+    }
+
     function logTemperature(uint256 _id, int256 _temperature) public {
-        // Emit the standard reading for our charts
+        Asset storage asset = assets[_id];
+        require(!asset.isSpoiled, "Asset already marked as spoiled");
+
         emit TelemetryLogged(_id, _temperature, block.timestamp);
 
-        // Financial Logic: If temp goes above 8 degrees Celsius, it's ruined!
-        if (_temperature > 8 && !assets[_id].isSpoiled) {
-            assets[_id].isSpoiled = true;
-            // Emit a specific event for financial loss tracking
-            emit AssetSpoiled(_id, assets[_id].valueUSD);
+        // Operational threshold: Critical failure if temperature goes above 8°C
+        if (_temperature > 8) {
+            asset.isSpoiled = true;
+            emit AssetSpoiled(_id, asset.valueUSD, asset.currentCustody);
         }
     }
 }
