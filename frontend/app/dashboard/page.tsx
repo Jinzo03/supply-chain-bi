@@ -3,100 +3,195 @@
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import supplyChainAbi from "../../abi/SupplyChain.json";
-// The contract address you got when you deployed
+
+// Import Chart.js essentials
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { Bar, Line } from "react-chartjs-2";
+
+// Register ChartJS modules so React-Chartjs-2 can use them
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
+
 const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const LOCAL_RPC_URL = "http://127.0.0.1:8545";
 
 export default function BIDashboard() {
-  const [totalLoss, setTotalLoss] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
-  const [spoiledEvents, setSpoiledEvents] = useState<any[]>([]);
+  const [totalLoss, setTotalLoss] = useState<number>(0);
+  const [totalShipments, setTotalShipments] = useState<number>(3); // Set from mock data
+  const [spoiledCount, setSpoiledCount] = useState<number>(0);
+  
+  // Chart Data States
+  const [lossChartData, setLossChartData] = useState<any>(null);
+  const [tempChartData, setTempChartData] = useState<any>(null);
 
   useEffect(() => {
-    async function fetchBlockchainData() {
+    async function fetchBIAnalytics() {
       try {
-        // 1. Connect to our local Hardhat node running in Terminal 1
         const provider = new ethers.JsonRpcProvider(LOCAL_RPC_URL);
-        
-        // 2. Instantiate our contract instance
         const contract = new ethers.Contract(CONTRACT_ADDRESS, supplyChainAbi.abi, provider);
 
-        // 3. Query all past "AssetSpoiled" events from the very first block (0) to the latest
-        console.log("Fetching supply chain logs from immutable ledger...");
-        const filter = contract.filters.AssetSpoiled();
-        const events = await contract.queryFilter(filter, 0, "latest");
+        // 1. Fetch ALL Spoiled Events for Financial Analysis
+        const spoiledFilter = contract.filters.AssetSpoiled();
+        const spoiledEvents = await contract.queryFilter(spoiledFilter, 0, "latest");
 
-        // 4. Process data for Business Intelligence / Financial Analysis
+        // 2. Fetch ALL Telemetry Events for Temperature Tracking
+        const telemetryFilter = contract.filters.TelemetryLogged();
+        const telemetryEvents = await contract.queryFilter(telemetryFilter, 0, "latest");
+
+        // --- Process Financial Data (Bar Chart) ---
         let lossAccumulator = 0;
-        const processedEvents = events.map((event: any) => {
-          // In ethers v6, event arguments are found in event.args
-          const assetId = event.args[0].toString();
+        const assetLabels: string[] = [];
+        const lossValues: number[] = [];
+
+        spoiledEvents.forEach((event: any) => {
+          const assetId = `Asset #${event.args[0].toString()}`;
           const lossValueUSD = Number(event.args[1]);
-          
           lossAccumulator += lossValueUSD;
 
-          return {
-            assetId,
-            lossValueUSD,
-            blockNumber: event.blockNumber,
-          };
+          assetLabels.push(assetId);
+          lossValues.push(lossValueUSD);
         });
 
         setTotalLoss(lossAccumulator);
-        setSpoiledEvents(processedEvents);
+        setSpoiledCount(spoiledEvents.length);
+
+        setLossChartData({
+          labels: assetLabels,
+          datasets: [
+            {
+              label: "Financial Loss (USD)",
+              data: lossValues,
+              backgroundColor: "rgba(239, 68, 68, 0.6)", // Red
+              borderColor: "rgba(239, 68, 68, 1)",
+              borderWidth: 1,
+            },
+          ],
+        });
+
+        // --- Process Telemetry Data (Line Chart) ---
+        // Let's sort telemetry logs by timestamp (chronological order)
+        const sortedTelemetry = [...telemetryEvents].sort((a: any, b: any) => 
+          Number(a.args[2]) - Number(b.args[2])
+        );
+
+        const timeLabels = sortedTelemetry.map((_, index) => `Reading ${index + 1}`);
+        const temperatures = sortedTelemetry.map((event: any) => Number(event.args[1]));
+
+        setTempChartData({
+          labels: timeLabels,
+          datasets: [
+            {
+              label: "Recorded Temperature (°C)",
+              data: temperatures,
+              borderColor: "rgba(59, 130, 246, 1)", // Blue
+              backgroundColor: "rgba(59, 130, 246, 0.2)",
+              tension: 0.3, // Curve smooth lines
+              pointRadius: 5,
+            },
+          ],
+        });
+
         setLoading(false);
       } catch (error) {
-        console.error("Error reading from blockchain:", error);
+        console.error("Error building BI metrics:", error);
         setLoading(false);
       }
     }
 
-    fetchBlockchainData();
+    fetchBIAnalytics();
   }, []);
 
   if (loading) {
-    return <div className="p-8 text-center text-xl">Loading BI Metrics from Blockchain...</div>;
+    return <div className="p-8 text-center text-xl text-gray-400">Aggregating Real-Time Blockchain Logs...</div>;
   }
 
+  // Calculate supply chain efficiency metric
+  const efficiencyRate = ((totalShipments - spoiledCount) / totalShipments) * 100;
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-      <h1 className="text-3xl font-bold mb-8">Supply Chain BI & Financial Dashboard</h1>
+    <div className="min-h-screen bg-gray-950 text-white p-8">
+      <header className="mb-10 border-b border-gray-800 pb-5">
+        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 to-red-500 bg-clip-text text-transparent">
+          Supply Chain Core Intelligence Platform
+        </h1>
+        <p className="text-sm text-gray-400 mt-1">Immutable Decentralized Ledger Audit & Financial Analytics</p>
+      </header>
       
-      {/* Financial KPIs Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-gray-800 p-6 rounded-xl border border-red-500/30">
-          <h2 className="text-sm font-semibold uppercase text-gray-400 tracking-wider">Total Financial Loss (Spoiled Cargo)</h2>
-          <p className="text-4xl font-extrabold text-red-500 mt-2">${totalLoss.toLocaleString()}</p>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="bg-gray-900 p-6 rounded-xl border border-red-500/20 shadow-lg">
+          <h2 className="text-xs font-semibold uppercase text-gray-400 tracking-wider">Total Financial Loss</h2>
+          <p className="text-4xl font-black text-red-500 mt-2">${totalLoss.toLocaleString()}</p>
+          <p className="text-xs text-red-400/60 mt-1">From temperature critical failures</p>
+        </div>
+
+        <div className="bg-gray-900 p-6 rounded-xl border border-blue-500/20 shadow-lg">
+          <h2 className="text-xs font-semibold uppercase text-gray-400 tracking-wider">Supply Chain Efficiency</h2>
+          <p className="text-4xl font-black text-blue-400 mt-2">{efficiencyRate.toFixed(1)}%</p>
+          <p className="text-xs text-blue-400/60 mt-1">Successful vs compromised assets</p>
         </div>
         
-        <div className="bg-gray-800 p-6 rounded-xl border border-green-500/30">
-          <h2 className="text-sm font-semibold uppercase text-gray-400 tracking-wider">Ledger Status</h2>
-          <p className="text-4xl font-extrabold text-green-400 mt-2">Connected</p>
-          <p className="text-xs text-gray-500 mt-1">Reading local testnet via Ethers.js</p>
+        <div className="bg-gray-900 p-6 rounded-xl border border-green-500/20 shadow-lg">
+          <h2 className="text-xs font-semibold uppercase text-gray-400 tracking-wider">Ledger Health Status</h2>
+          <p className="text-4xl font-black text-green-400 mt-2">SECURE</p>
+          <p className="text-xs text-green-400/60 mt-1">Connected to EDR-Simulated Local Node</p>
         </div>
       </div>
 
-      {/* Raw Ledger Audit Table */}
-      <div className="bg-gray-800 p-6 rounded-xl">
-        <h2 className="text-xl font-bold mb-4">Immutable Incident Log (Blockchain Audit Trail)</h2>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-gray-700 text-gray-400">
-              <th className="py-2">Asset ID</th>
-              <th className="py-2">Incident Type</th>
-              <th className="py-2 text-right">Financial Loss (USD)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {spoiledEvents.map((evt, idx) => (
-              <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                <td className="py-3">Asset #{evt.assetId}</td>
-                <td className="py-3 text-red-400 font-medium">Temperature Threshold Breached</td>
-                <td className="py-3 text-right text-red-400 font-bold">${evt.lossValueUSD.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Chart Visualizations Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Financial Bar Chart */}
+        <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 shadow-md">
+          <h3 className="text-lg font-bold mb-4 text-gray-200">Financial Loss Allocation</h3>
+          {lossChartData && (
+            <div className="h-64">
+              <Bar 
+                data={lossChartData} 
+                options={{ 
+                  responsive: true, 
+                  maintainAspectRatio: false,
+                  scales: { y: { grid: { color: '#1f2937' } }, x: { grid: { display: false } } } 
+                }} 
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Temperature Telemetry Line Chart */}
+        <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 shadow-md">
+          <h3 className="text-lg font-bold mb-4 text-gray-200">Global Temperature Timeline Logs</h3>
+          {tempChartData && (
+            <div className="h-64">
+              <Line 
+                data={tempChartData} 
+                options={{ 
+                  responsive: true, 
+                  maintainAspectRatio: false,
+                  scales: { y: { grid: { color: '#1f2937' } }, x: { grid: { display: false } } } 
+                }} 
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
